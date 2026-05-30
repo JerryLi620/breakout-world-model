@@ -115,10 +115,18 @@ regression.
 \textbf{Components.} Our deterministic model uses a U-Net~\cite{ronneberger2015unet}
 for spatial detail and FiLM~\cite{perez2018film} for action conditioning. The
 transformer follows the standard causal architecture~\cite{vaswani2017attention}.
-Compared with these works, our contribution is not a new architecture but a
-controlled, side-by-side analysis---on a single environment and pipeline---of
-\emph{why} deterministic pixel regression fails at rollout and how discrete
-tokens fix it.
+Compared with these works, we claim no architectural novelty: our token model is
+a deliberately minimal reimplementation of the IRIS recipe (VQ-VAE\,+\,causal
+transformer), and the broad conclusion that discrete latents help on Atari was
+already established by IRIS~\cite{micheli2023iris} and
+DreamerV2~\cite{hafner2021dreamerv2}. What we contribute, as a course project, is
+a \emph{controlled, single-pipeline comparison} that those papers do not report:
+holding the data, environment, and evaluation fixed, we show \emph{why} the
+deterministic baseline fails by characterizing its failure as a
+regularization-controlled blow-up$\leftrightarrow$freeze trade-off
+(\S\ref{sec:det}), and we measure the token model on the \emph{same} rollout axes
+to confirm it stays on ground truth where the baseline cannot. We treat this as a
+pedagogical, reproducible demonstration rather than a new method.
 
 \section{Data}
 
@@ -292,6 +300,7 @@ params & $\sim$26.8M \\
 \end{table}
 
 \subsection{The deterministic model hits a wall}
+\label{sec:det}
 The deterministic model learns clean one-step teacher-forced predictions, and
 FiLM is necessary for it to use the action: action sensitivity rises from exactly
 $0.000$ (concatenation) to $\sim$0.20 (FiLM). However, free rollout fails, and
@@ -320,14 +329,16 @@ is set by the brightness-regularization weight; there is no stable setting.}
 \begin{figure}[t]
 \centering
 \includegraphics[width=0.8\linewidth]{coherence_plot_vertical}
-\caption{Quantitative rollout failure. \textbf{Top:} max pixel value drifts to
-saturation under weak brightness-regularization (red, blow-up), or stays
-flat-but-stuck under strong regularization (orange, freeze); ground truth
-(grey dashed) is stable around $0.58$. \textbf{Bottom:} per-step motion stays
-high but is meaningless during blow-up, while it collapses to $\sim$1 in the
-freeze regime---ground-truth motion (grey) varies in a healthy range. The token
-rollout (Figs.~\ref{fig:tok}, \ref{fig:recon}) qualitatively stays inside the GT
-bands on both panels.}
+\caption{Quantitative rollout comparison, averaged over 30 held-out sequences.
+\textbf{Top (max pixel):} under weak brightness-regularization the deterministic
+prediction saturates toward $1.0$ (red, blow-up); under strong regularization it
+stays flat (orange, freeze). \textbf{Bottom (per-step motion):} the blow-up
+regime keeps high but meaningless motion ($\sim$3$\times10^{-3}$), while the
+freeze regime collapses to near-zero ($\sim$0.3$\times10^{-3}$). In both panels
+the \emph{token rollout} (blue) tracks the ground-truth band (grey dashed) for
+the full clip---stable brightness around $0.58$ and motion in the healthy GT
+range---whereas both deterministic regimes leave the GT band within
+$\sim$6 steps. The token model is the only one that stays on GT on both axes.}
 \label{fig:coh}
 \end{figure}
 
@@ -339,13 +350,37 @@ the failure compounds rather than self-corrects.
 
 \subsection{The token model produces coherent rollouts}
 The VQ-VAE reaches a reconstruction loss of $0.0034$ at $128\times128$ with the
-ball and paddle clearly reconstructed (Figure~\ref{fig:recon}). Codebook
-perplexity is low ($\approx$5 of $512$ codes), which is expected for low-entropy
-Breakout frames---most $8\!\times\!8$ patches are pure background---and does not
-harm reconstruction. The transformer trains from a cross-entropy of $0.30$ down
-to $0.0084$. As shown in Figure~\ref{fig:tok}, rollouts primed on four real
-frames stay \emph{coherent over the full clip}: the ball moves and bounces, the
-paddle tracks, and bricks persist---no blow-up and no freeze.
+ball and paddle clearly reconstructed (Figure~\ref{fig:recon}). The transformer
+trains from a cross-entropy of $0.30$ down to $0.0084$. As shown in
+Figure~\ref{fig:tok}, rollouts primed on four real frames stay \emph{coherent
+over the full clip}: the ball moves and bounces, the paddle tracks, and bricks
+persist---no blow-up and no freeze. Crucially, we evaluate the token model on the
+\emph{same} axes used to diagnose the deterministic failure
+(Figure~\ref{fig:coh}, blue): averaged over 30 held-out sequences, its max pixel
+stays flat at $\approx$0.58 (matching ground truth, vs.\ the blow-up regime's
+drift to $1.0$) and its per-step motion stays within the ground-truth band
+($\approx$1$\times10^{-3}$, vs.\ the freeze regime's collapse to
+$\approx$0.3$\times10^{-3}$). Unlike both deterministic regimes, which leave the
+GT band within $\sim$6 steps, the token rollout never diverges over the full
+clip---turning the qualitative ``coherent'' claim into a measured one.
+
+\textbf{Codebook utilization.} Encoding 200 sequences ($1.02$M token slots), we
+find only $7$ of the $512$ codes are ever used, with an empirical perplexity of
+$4.9$; the top two codes cover $65\%$ of all tokens and the top five cover $95\%$
+(Figure~\ref{fig:codebook}). This is \emph{expected} for low-entropy Breakout
+frames rather than a sign of harmful codebook collapse: most $8\!\times\!8$
+patches are pure background or uniform brick texture, so few distinct codes are
+\emph{needed}. Two pieces of evidence rule out a degenerate ``lookup-table''
+explanation. First, reconstruction is faithful---the one- to two-pixel ball,
+paddle, and bricks all survive quantization (Figure~\ref{fig:recon})---which a
+handful of indistinct codes could not achieve. Second, the representation is not
+$5$ codes but a $16\!\times\!16$ \emph{spatial grid} of $256$ cells each drawn
+from this small alphabet, so ball position is encoded by \emph{where} the
+foreground code appears, not by code identity alone. Third, the active codes are
+genuinely distinct: their embedding vectors have a mean pairwise distance of
+$4.2$ (minimum $1.8$), so they are well-separated rather than collapsed onto a
+single point. The small alphabet thus reflects the data's low visual entropy, not
+a degenerate encoder.
 
 \begin{figure}[t]
 \centering
@@ -356,6 +391,19 @@ $16\!\times\!16$ token grid. Bricks, paddle, and the small bright ball all
 survive quantization, confirming the discrete representation preserves the
 information the dynamics model needs.}
 \label{fig:recon}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.99\linewidth]{codebook_usage}
+\caption{Codebook utilization over $1.02$M encoded token slots. \textbf{Left:}
+usage fraction per code (sorted, log scale)---only $7$ of $512$ codes are active.
+\textbf{Right:} cumulative coverage; the top two codes account for $65\%$ and the
+top five for $95\%$ of all tokens. The low perplexity ($4.9$) reflects the
+genuinely low visual entropy of Breakout frames, not codebook collapse:
+reconstruction stays faithful (Figure~\ref{fig:recon}) and the $16\!\times\!16$
+spatial grid encodes object position by location, not code identity.}
+\label{fig:codebook}
 \end{figure}
 
 \begin{figure}[t]
@@ -376,15 +424,20 @@ truth, with stable brightness and persistent motion.}
 \toprule
  & Copy-last & Det.\ U-Net & Token \\
 \midrule
-One-step (TF)         & static & clean & clean \\
-Rollout coherence     & 0 fr.\ & $\sim$5--6 fr.\ & full clip \\
-Failure mode          & frozen & blow-up$\leftrightarrow$freeze & none \\
-Brightness stable     & yes    & no (drifts to 1) & yes \\
-Stochastic futures    & no     & no & yes \\
+One-step (TF)               & static & clean & clean \\
+Coherent rollout (frames)   & 0      & $\sim$6 & full clip ($\geq$16) \\
+Max pixel @ step 16         & 0.58   & 1.00 (blow-up) & 0.58 \\
+Motion @ step 16 ($\times10^{-3}$) & 0 & 0.3 (freeze) & 1.0 \\
+GT-band tracking            & no     & no    & both axes \\
+Stochastic futures          & no     & no    & yes \\
 \bottomrule
 \end{tabular}
-\caption{Comparison across our evaluation axes. The token model is the only one
-that rolls out coherently \emph{and} produces diverse futures.}
+\caption{Comparison across our evaluation axes; rollout numbers averaged over 30
+held-out sequences (Figure~\ref{fig:coh}). Ground-truth references are max
+pixel $\approx$0.58 and motion $\approx$1$\times10^{-3}$. The deterministic
+column reports its two failure regimes (blow-up on brightness, freeze on motion);
+the token model is the only one that stays in the GT band on \emph{both} axes
+\emph{and} produces diverse futures.}
 \label{tab:cmp}
 \end{table}
 
