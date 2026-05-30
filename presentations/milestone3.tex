@@ -1,0 +1,213 @@
+\documentclass[aspectratio=169]{beamer}
+
+% ---------------------------------------------------------------------------
+\usetheme{Boadilla}
+\usecolortheme{seahorse}
+\setbeamertemplate{navigation symbols}{}
+\setbeamertemplate{footline}[frame number]
+\setbeamerfont{frametitle}{size=\large,series=\bfseries}
+
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, positioning}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\graphicspath{{./slide_frames/}}
+
+% 6-frame filmstrip from slide_frames/<prefix>_0..5.png
+\newcommand{\strip}[1]{%
+  \includegraphics[width=0.155\textwidth]{#1_0}\hfill
+  \includegraphics[width=0.155\textwidth]{#1_1}\hfill
+  \includegraphics[width=0.155\textwidth]{#1_2}\hfill
+  \includegraphics[width=0.155\textwidth]{#1_3}\hfill
+  \includegraphics[width=0.155\textwidth]{#1_4}\hfill
+  \includegraphics[width=0.155\textwidth]{#1_5}%
+}
+
+\definecolor{cGood}{RGB}{40,150,70}
+\definecolor{cBad}{RGB}{200,50,50}
+\definecolor{cTok}{RGB}{52,120,184}
+\definecolor{cDet}{RGB}{200,120,40}
+
+\newcommand{\good}[1]{\textcolor{cGood}{#1}}
+\newcommand{\bad}[1]{\textcolor{cBad}{#1}}
+
+\title[Breakout World Model: Results]{Action-Conditioned World Model for Atari Breakout}
+\subtitle{Milestone 3 --- Results \& Analysis}
+\author{}
+\date{\today}
+
+\begin{document}
+
+% ---------------------------------------------------------------------------
+\begin{frame}
+  \titlepage
+\end{frame}
+
+% ---------------------------------------------------------------------------
+\begin{frame}{Recap \& how we evaluate}
+  \begin{columns}
+    \begin{column}{0.54\textwidth}
+      \textbf{Goal:} given start frames + actions, roll out a coherent,
+      game-like Breakout clip.
+
+      \vspace{0.4em}
+      \textbf{Two models compared:}
+      \begin{itemize}
+        \item \textcolor{cDet}{Deterministic FiLM U-Net} — predicts a residual
+              next frame (regression, L1).
+        \item \textcolor{cTok}{Token model} — VQ-VAE tokenizer + GPT over tokens
+              (classification + sampling).
+      \end{itemize}
+    \end{column}
+    \begin{column}{0.46\textwidth}
+      \textbf{Metrics}
+      \begin{itemize}
+        \item \textbf{One-step error} (teacher-forced)
+        \item \textbf{Rollout coherence horizon}: \# frames before motion
+              collapses / image degrades
+        \item \textbf{Brightness stability} ($\max$ pixel over rollout)
+        \item \textbf{Action sensitivity} $\|\hat{x}(a_i)-\hat{x}(a_j)\|$
+        \item \textbf{Stochasticity}: do samples differ?
+      \end{itemize}
+    \end{column}
+  \end{columns}
+  \vspace{0.3em}
+  \footnotesize\textit{Baselines: copy-last-frame, and ablations of the
+  deterministic model (no-skip, no-FiLM).}
+\end{frame}
+
+% ---------------------------------------------------------------------------
+\begin{frame}{Result 1 --- Deterministic model hits the rollout wall}
+  \footnotesize
+  \textbf{One-step works} (FiLM made the action matter: sensitivity
+  \bad{0.000}\,$\to$\,\good{0.20}). \textbf{But rollout fails by compounding
+  error}, and the failure \emph{mode} depends only on brightness-reg strength —
+  \good{no setting is stable}. (Frames left $\to$ right = rollout progression.)
+
+  \vspace{0.4em}
+  \textbf{\bad{Blow-up}} \scriptsize(low brightness-reg: $\max$ pixel
+  $0.58\!\to\!1.0$ by step $\sim$6 --- whites out)\par
+  \strip{blowup}
+
+  \vspace{0.5em}
+  \footnotesize\textbf{\bad{Freeze}} \scriptsize(high brightness-reg: motion
+  $\sim$12 $\to$ $\sim$1 --- ball dies, frame frozen)\par
+  \strip{freeze}
+\end{frame}
+
+% ---------------------------------------------------------------------------
+\begin{frame}{Result 2 --- Token world model: coherent, stochastic rollout}
+  \footnotesize
+  \textbf{Stage 1 — VQ-VAE} (128$\times$128 $\to$ 16$\times$16 = 256 tokens,
+  $K{=}512$): recon loss \good{0.0034}.\quad
+  \textbf{Stage 2 — GPT} (26.8M params): train loss \good{$0.30\!\to\!0.0084$};
+  KV-cached sampling.\par
+  \good{Coherent across the full rollout} — ball bounces, paddle tracks, bricks
+  persist; \good{no blow-up, no freeze}. (prime = 4 real frames, then generated.)
+
+  \vspace{0.4em}
+  \textbf{Ground truth}\par
+  \strip{gt}
+
+  \vspace{0.5em}
+  \textbf{\textcolor{cTok}{Token rollout (sample)}}\par
+  \strip{token}
+
+  \vspace{0.3em}
+  \scriptsize Samples from the same prime diverge $\Rightarrow$ stochastic,
+  action-conditioned simulation (the project goal).
+\end{frame}
+
+% ---------------------------------------------------------------------------
+\begin{frame}{Comparison \& analysis}
+  \centering
+  \renewcommand{\arraystretch}{1.25}
+  \footnotesize
+  \begin{tabular}{lccc}
+    \toprule
+    & \textbf{Copy-last} & \textbf{Deterministic U-Net} & \textbf{Token (VQ+GPT)} \\
+    \midrule
+    One-step teacher-forced     & static        & \good{clean}              & \good{clean} \\
+    Rollout coherence horizon   & 0             & \bad{$\sim$5--6 frames}   & \good{full clip} \\
+    Rollout failure mode        & frozen        & \bad{blow-up $\leftrightarrow$ freeze} & \good{none observed} \\
+    Brightness stable           & yes (copies)  & \bad{no (drifts to 1.0)}  & \good{yes ($\approx$0.58)} \\
+    Stochastic futures          & no            & \bad{no (deterministic)}  & \good{yes} \\
+    \bottomrule
+  \end{tabular}
+
+  \vspace{0.7em}
+  \begin{columns}
+    \begin{column}{0.92\textwidth}
+      \footnotesize
+      \textbf{Insights — and they matched our hypothesis:}
+      \begin{itemize}
+        \item \textbf{Why deterministic fails:} pixel-L1 regression averages
+              over futures and has no mechanism to halt intensity drift in
+              closed loop $\Rightarrow$ blur, then blow-up or freeze.
+        \item \textbf{Why tokens work:} next-token \emph{classification} +
+              sampling avoids the L1 mean; discrete codes can't decay
+              $\Rightarrow$ sharp, stable, and naturally stochastic rollouts.
+        \item \textbf{Predicted, then observed:} we expected L1 to hit the wall
+              (it did) and tokens to break it (they did).
+      \end{itemize}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+% ---------------------------------------------------------------------------
+\begin{frame}{Stochasticity --- same prime, different futures}
+  \footnotesize
+  Three rollouts from the \textbf{identical} 4 priming frames, sampled with
+  different random seeds (temp 1.0, top-$k$ 50). Columns are matched timesteps in
+  the \emph{generated} region --- compare a column top-to-bottom: the ball
+  follows \textbf{different trajectories}, i.e.\ the model has learned a
+  \textbf{distribution} over futures, not a single one.
+
+  \vspace{0.4em}
+  \textbf{\textcolor{cTok}{Sample 1}}\par\strip{s0}
+  \vspace{0.3em}
+  \textbf{\textcolor{cTok}{Sample 2}}\par\strip{s1}
+  \vspace{0.3em}
+  \textbf{\textcolor{cTok}{Sample 3}}\par\strip{s2}
+\end{frame}
+
+% ---------------------------------------------------------------------------
+\begin{frame}{Limitations \& next steps}
+  \begin{columns}
+    \begin{column}{0.5\textwidth}
+      \textbf{Limitations}
+      \begin{itemize}
+        \item \textbf{Ball respawn not generated} — 20-frame random-policy clips
+              rarely contained a lose$\to$FIRE$\to$respawn cycle.
+              \good{Diagnosed as data coverage}, not architecture (model
+              faithfully reproduces only what it observed).
+        \item \textbf{Low codebook usage} (perplexity $\approx$5/512) — fine for
+              low-entropy Breakout, limits transfer.
+        \item Autoregressive sampling is sequential (mitigated w/ KV cache).
+        \item Grayscale, single game.
+      \end{itemize}
+    \end{column}
+    \begin{column}{0.5\textwidth}
+      \textbf{Next steps}
+      \begin{itemize}
+        \item \textbf{Fix respawn at the data level} (done): FIRE-on-life-loss
+              policy + longer clips $\Rightarrow$ \good{9/10 clips now contain a
+              respawn}; retrain + evaluate.
+        \item Quantify coherence horizon vs.\ GT (per-frame error curve);
+              temperature / top-$k$ ablation.
+        \item Color (RGB) for visual realism; longer rollouts.
+      \end{itemize}
+
+      \vspace{0.5em}
+      \textbf{Takeaway:} we demonstrated the deterministic rollout wall, then
+      \good{broke it} with a discrete-token world model that produces coherent,
+      stochastic, action-conditioned Breakout.
+    \end{column}
+  \end{columns}
+  \vspace{0.3em}
+  \centering \small Thank you --- questions?
+\end{frame}
+
+\end{document}
