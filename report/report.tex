@@ -93,75 +93,159 @@ data-level fix. The result is both a working model and a clear story about
 
 \section{Related Work}
 
-\textbf{Latent world models.} Ha and Schmidhuber~\cite{ha2018worldmodels}
-introduced the encoder--dynamics--decoder template that we follow. The
-PlaNet/Dreamer line~\cite{hafner2019planet,hafner2020dreamer,hafner2021dreamerv2,
-hafner2023dreamerv3} uses a recurrent state-space model with a \emph{stochastic}
-latent and a KL objective; DreamerV2~\cite{hafner2021dreamerv2} notably switched
-to \emph{discrete} (categorical) latents for Atari, supporting our finding that
-discreteness helps. SimPLe~\cite{kaiser2020simple} learns a pixel-space
-video-prediction model for Atari and is closest to our deterministic baseline.
+\textbf{Latent world models for control.} Ha and
+Schmidhuber~\cite{ha2018worldmodels} introduced the
+encoder--dynamics--decoder template that we follow: an observation is compressed
+to a latent, a recurrent network rolls the latent forward under actions, and a
+decoder maps back to pixels. The PlaNet/Dreamer
+line~\cite{hafner2019planet,hafner2020dreamer,hafner2021dreamerv2,hafner2023dreamerv3}
+develops this into the Recurrent State-Space Model (RSSM), which couples a
+deterministic recurrent path with a \emph{stochastic} latent trained by a
+variational (KL) objective, and learns behaviors purely ``in imagination''
+inside the model. A pivotal step for our purposes is
+DreamerV2~\cite{hafner2021dreamerv2}, which replaced the Gaussian latent with a
+\emph{discrete} (categorical) one and reported that this change---not a larger
+network---was decisive for mastering Atari; DreamerV3~\cite{hafner2023dreamerv3}
+later scaled the same recipe across many domains. This RSSM family is the
+natural third point of comparison to the two models we study: it is stochastic
+like our token model but keeps a \emph{continuous} reconstruction decoder like
+our deterministic baseline. We do not implement it here for budget reasons, but
+its trajectory---from continuous to discrete latents---directly motivates our
+question of \emph{why} discreteness helps at rollout time.
 
-\textbf{Token / generative world models.} IRIS~\cite{micheli2023iris} tokenizes
-frames with a VQ-VAE~\cite{oord2017vqvae} and models dynamics with a transformer
-over tokens; our token model is a minimal version of this design. Image
-GPT~\cite{chen2020igpt} established autoregressive transformers over image
-tokens. DIAMOND~\cite{alonso2024diamond}, GameNGen~\cite{valevski2024gamengen},
-and Genie~\cite{bruce2024genie} use diffusion or large transformers for
-high-fidelity playable world models; these are far beyond our compute budget but
-share the core idea that strong generative decoders avoid the blur of pixel
-regression.
+\textbf{Pixel-space video prediction and the averaging problem.}
+SimPLe~\cite{kaiser2020simple} learns an action-conditioned, pixel-space
+video-prediction model of Atari and uses it to train a policy; architecturally
+it is the closest prior to our deterministic baseline, and like ours it
+regresses future frames rather than sampling them. The known failure of such
+regressors is that a squared- or absolute-error objective is minimized by the
+\emph{conditional mean} of the future, so when several futures are plausible the
+network outputs their blurry average~\cite{mathieu2016deep}. Stochastic
+video-prediction models such as SV2P~\cite{babaeizadeh2018stochastic} address
+this by injecting latent variables so that distinct futures can be sampled
+rather than averaged. Our deterministic model inherits exactly the mean-seeking
+pathology these works describe; the blow-up and freeze regimes we characterize
+(\S\ref{sec:det}) are two ways that pathology manifests under closed-loop
+rollout.
 
-\textbf{Components.} Our deterministic model uses a U-Net~\cite{ronneberger2015unet}
-for spatial detail and FiLM~\cite{perez2018film} for action conditioning. The
-transformer follows the standard causal architecture~\cite{vaswani2017attention}.
-Compared with these works, we claim no architectural novelty: our token model is
-a deliberately minimal reimplementation of the IRIS recipe (VQ-VAE\,+\,causal
-transformer), and the broad conclusion that discrete latents help on Atari was
-already established by IRIS~\cite{micheli2023iris} and
-DreamerV2~\cite{hafner2021dreamerv2}. What we contribute, as a course project, is
-a \emph{controlled, single-pipeline comparison} that those papers do not report:
-holding the data, environment, and evaluation fixed, we show \emph{why} the
-deterministic baseline fails by characterizing its failure as a
-regularization-controlled blow-up$\leftrightarrow$freeze trade-off
-(\S\ref{sec:det}), and we measure the token model on the \emph{same} rollout axes
-to confirm it stays on ground truth where the baseline cannot. We treat this as a
-pedagogical, reproducible demonstration rather than a new method.
+\textbf{Exposure bias and compounding rollout error.} The second ingredient in
+our baseline's failure is \emph{exposure bias}: a model trained only on
+ground-truth context (teacher forcing) is never exposed to its own imperfect
+predictions, so at test time small errors push the input off the training
+distribution and compound~\cite{bengio2015scheduled,ranzato2016sequence}.
+Scheduled sampling~\cite{bengio2015scheduled} and sequence-level
+training~\cite{ranzato2016sequence} were proposed in language and sequence
+modeling to mitigate this; we observe the same distribution-shift mechanism in
+the visual domain, where it appears as monotonic brightness drift or motion
+collapse rather than text degeneration.
+
+\textbf{Token / generative world models.} A complementary remedy replaces
+regression with \emph{classification over discrete codes}. VQ-VAE~\cite{oord2017vqvae}
+learns a discrete codebook for images; Image GPT~\cite{chen2020igpt} and
+VideoGPT~\cite{yan2021videogpt} model the resulting tokens autoregressively, and
+VQGAN~\cite{esser2021taming} adds an adversarial decoder for sharp
+high-resolution synthesis. IRIS~\cite{micheli2023iris} brings this recipe to
+model-based RL---a VQ-VAE tokenizer plus a transformer dynamics model over
+tokens and actions---and is the direct template for our token model;
+TWM~\cite{robine2023twm} and STORM~\cite{zhang2023storm} are closely related
+transformer world models that also report strong sample efficiency on Atari.
+At the high-fidelity end, DIAMOND~\cite{alonso2024diamond},
+GameNGen~\cite{valevski2024gamengen}, and Genie~\cite{bruce2024genie} use
+diffusion or large transformers to build playable world models; these are far
+beyond our compute budget but share the core lesson that a strong generative
+decoder avoids the blur and decay of pixel regression.
+
+\textbf{Components and positioning.} Our deterministic model uses a
+U-Net~\cite{ronneberger2015unet} for spatial detail and FiLM~\cite{perez2018film}
+for action conditioning, and the token model uses the standard causal
+transformer~\cite{vaswani2017attention}. We claim no architectural novelty: our
+token model is a deliberately minimal reimplementation of the IRIS
+recipe~\cite{micheli2023iris}, and the broad conclusion that discrete latents
+help on Atari was already established by DreamerV2~\cite{hafner2021dreamerv2} and
+IRIS. What we contribute, as a course project, is a \emph{controlled,
+single-pipeline comparison} that those papers do not report: holding the data,
+environment, and evaluation fixed, we show \emph{why} the deterministic baseline
+fails by characterizing its failure as a regularization-controlled
+blow-up$\leftrightarrow$freeze trade-off (\S\ref{sec:det}), and we measure the
+token model on the \emph{same} rollout axes to confirm it stays on ground truth
+where the baseline cannot. We treat this as a pedagogical, reproducible
+demonstration rather than a new method.
 
 \section{Data}
 
-We collect trajectories from Atari Breakout via the Arcade Learning
-Environment~\cite{bellemare2013ale} (\texttt{ALE/Breakout-v5}). Each frame is
-converted to grayscale and resized to $128\times128$ with nearest-neighbor
-sampling (we initially used $64\times64$ and increased resolution to sharpen the
-1--2 pixel ball). An observation \emph{state} is a stack of the last four frames,
-which provides velocity information. We record the discrete action at each step
-(4 actions, one-hot encoded).
+\textbf{Environment and action space.} We collect trajectories from Atari
+Breakout via the Arcade Learning Environment~\cite{bellemare2013ale}
+(\texttt{ALE/Breakout-v5}). Breakout exposes four discrete actions
+(\texttt{NOOP}, \texttt{FIRE}, \texttt{RIGHT}, \texttt{LEFT}), which we record
+per step and one-hot encode as the action input to both models. The dynamics are
+deceptively hard to render: the ball is only one to two pixels wide at the
+resolutions we can afford, so a model that is even slightly conservative will
+let it fade, while the bricks and paddle are large, static, high-contrast
+regions that dominate any pixel-averaged loss. This mismatch---a tiny, fast,
+information-rich object against a large, slow background---is precisely what
+makes the rollout problem interesting on this game.
 
-Trajectories are gathered with a random policy and a frame skip of 2 for visual
-diversity. Each episode begins with a \texttt{FIRE} action to launch the ball,
-and we discard near-static clips (max inter-frame difference below a threshold).
-Our main dataset is 2{,}000 sequences of length 50 ($100{,}000$ frames). Because
-the world model trains per-frame for the tokenizer and on windows of frames for
-the dynamics model, this provides ample supervision.
+\textbf{Preprocessing.} Each frame is converted to grayscale and resized to
+$128\times128$ with nearest-neighbor sampling, then scaled to $[0,1]$. We use
+grayscale because Breakout's dynamics are fully observable in luminance and it
+cuts tokenizer and transformer cost threefold; we use nearest-neighbor rather
+than bilinear resizing specifically to avoid anti-aliasing the ball into a
+sub-threshold gray smear. We initially trained at $64\times64$ (used by the
+deterministic baseline, Table~\ref{tab:hp}a) and raised the resolution to
+$128\times128$ for the token model to sharpen the ball; the tokenizer is fully
+convolutional, so this change requires no architectural modification. An
+observation \emph{state} is a stack of the last four frames, which supplies the
+velocity information a single frame lacks.
+
+\textbf{Collection policy.} Trajectories are gathered with a random policy and a
+frame skip of $2$, which increases per-step visual change and decorrelates
+successive frames. Each episode begins with a \texttt{FIRE} action to launch the
+ball, and we discard near-static clips whose maximum inter-frame difference falls
+below a threshold, since clips in which nothing moves provide no dynamics
+signal. We use two corpora collected this way: a length-$20$ set
+($2{,}000\times20=40{,}000$ frames) for the main comparison, and a longer
+length-$50$ set ($2{,}000\times50=100{,}000$ frames) used for the respawn study
+below. The tokenizer trains per frame and the dynamics model on sliding windows
+of frames, so even the shorter corpus yields ample supervision. Because the
+collection policy is fixed and seeded, the corpora are exactly reproducible; we
+report all rollout metrics on a fixed set of $30$ evaluation sequences primed
+from this distribution. We note as a limitation that, given the project scope,
+we do not carve out a separately held-out test environment seed---a
+straightforward addition for a fuller study.
 
 \textbf{Targeted respawn coverage.} Breakout's life-loss mechanic requires the
-agent to press \texttt{FIRE} to launch a new ball after one is lost; with a pure
+agent to press \texttt{FIRE} to launch a new ball after one is lost. With a pure
 random policy and short clips, a full
-``ball lost $\rightarrow$ \texttt{FIRE} $\rightarrow$ respawn'' cycle rarely
-appears, so a world model trained on such data has no chance of learning it. We
-explicitly address this at the collection level: we monitor the environment's
-life counter and, whenever a life is lost, force the next action to be
-\texttt{FIRE}, combined with longer (length-50) clips. With this policy, 9 of 10
-collected sequences contain a complete respawn cycle, giving the world model the
-supervision needed to reproduce the mechanic faithfully.
+``ball lost $\rightarrow$ \texttt{FIRE} $\rightarrow$ respawn'' cycle almost
+never appears in a window, so a world model trained on such data has no chance of
+learning it and instead predicts that a lost ball stays gone. This is a
+\emph{data-coverage} gap, not a modeling failure, and we fix it at the source: we
+monitor the environment's life counter and, whenever a life is lost, force the
+next action to be \texttt{FIRE}, combined with the longer length-$50$ clips so a
+full cycle fits inside a training window. With this policy, $9$ of $10$ collected
+sequences contain a complete respawn cycle, giving the dynamics model the
+supervision it needs to reproduce the mechanic faithfully. We highlight this as a
+small but general lesson: for rare but mechanically important events, shaping the
+\emph{data distribution} can be more effective than adding model capacity.
 
 \section{Methods}
 
-\subsection{Overview}
-We compare two models that share the framing ``predict the next frame from a
-4-frame stack and an action,'' but differ in representation and objective
-(Figure~\ref{fig:arch}).
+\subsection{Overview and problem statement}
+Let $x_t\in[0,1]^{H\times W}$ be the grayscale frame at step $t$ and
+$a_t\in\{0,\dots,3\}$ the action taken there. We define the model state as the
+stack of the last four frames, $s_t=(x_{t-3},x_{t-2},x_{t-1},x_t)$, and seek a
+model of the action-conditioned transition $p(x_{t+1}\mid s_t,a_t)$. Both models
+we study share this framing---``predict the next frame from a 4-frame stack and
+an action''---but differ fundamentally in \emph{representation} and
+\emph{objective} (Figure~\ref{fig:arch}). The deterministic model learns a point
+estimate $\hat{x}_{t+1}=f_\theta(s_t,a_t)$ by regression; the token model learns
+a full distribution over a discrete code of $x_{t+1}$ and samples from it. The
+quantity we ultimately care about is not one-step accuracy but the quality of an
+\emph{autoregressive rollout}, in which the model is primed with a few real
+frames and then consumes its own predictions:
+$\hat{x}_{t+1}=f_\theta(\hat{s}_t,a_t)$ with $\hat{s}_t$ built from previous
+outputs. This closed loop is where teacher-forced training and test-time use
+diverge, and where the two representations behave very differently.
 
 \begin{figure}[t]
 \centering
@@ -208,39 +292,82 @@ scale and bias predicted from the action, $h \!\leftarrow\! (1+\gamma(a))\,h +
 $\hat{x}_{t+1}=\mathrm{clip}(x_t + s\cdot\tanh(\delta),0,1)$, which keeps
 predictions anchored to the previous frame.
 
-The model is trained with a motion-aware loss that up-weights changed and bright
-pixels, plus a delta term, a false-motion penalty, and a brightness-conservation
-term that penalizes per-frame mean-intensity drift:
+\textbf{Objective.} A plain pixel loss is dominated by the static background and
+ignores the ball, so we train with a motion-aware loss built from four terms.
+Let $x^\star=x_{t+1}$ be the target, $x_t$ the previous frame, and define a
+per-pixel weight $w$ that up-weights pixels that either change between $x_t$ and
+$x^\star$ or are bright (the ball and paddle). The total loss is
 \begin{align}
 \mathcal{L} =\;& \mathbb{E}\big[w \cdot \mathrm{SmoothL1}(\hat{x},x^\star)\big]
   + \lambda_1\,\mathcal{L}_{\Delta} \nonumber\\
   &+ \lambda_2\,\mathcal{L}_{\text{false-mot}}
-  + \lambda_3\,\mathcal{L}_{\text{bright}} .
+  + \lambda_3\,\mathcal{L}_{\text{bright}} ,
 \end{align}
+where (i) the weighted $\mathrm{SmoothL1}$ term is the reconstruction loss; (ii)
+$\mathcal{L}_{\Delta}=\mathrm{SmoothL1}(\hat{x}-x_t,\;x^\star-x_t)$ supervises the
+\emph{change} from the previous frame directly, forcing the model to model motion
+rather than copy $x_t$; (iii)
+$\mathcal{L}_{\text{false-mot}}=\lVert(\hat{x}-x_t)\odot(1-m)\rVert_1$ penalizes
+predicted change outside the region $m$ that actually moved, discouraging
+background flicker; and (iv)
+$\mathcal{L}_{\text{bright}}=\lvert\,\overline{\hat{x}}-\overline{x^\star}\,\rvert$
+penalizes drift in mean frame intensity, the term that directly fights the
+brightness blow-up we observe at rollout. The weights
+$(\lambda_1,\lambda_2,\lambda_3)$ are the single most consequential knobs in this
+model: \S\ref{sec:det} shows that $\lambda_3$ alone selects which way the rollout
+collapses. We train with AdamW and, after a short teacher-forced warmup, add a
+short ($6$-step) backpropagated rollout term so the model sees its own outputs
+during training---a partial, and as we will see insufficient, remedy for exposure
+bias~\cite{bengio2015scheduled}.
 
 \subsection{Discrete-token world model}
 \textbf{Tokenizer.} A VQ-VAE~\cite{oord2017vqvae} encodes each $128\times128$
-grayscale frame to an $8\times$-downsampled $16\times16$ grid; each cell is
-quantized to its nearest entry in a codebook of $K{=}512$ vectors, giving
-$256$ discrete tokens per frame. We use an exponential-moving-average codebook
-for stability and an object-weighted reconstruction loss so the small bright ball
-survives quantization. The tokenizer is fully convolutional, so changing input
-resolution requires no architectural change.
+grayscale frame with a fully convolutional encoder to an $8\times$-downsampled
+$16\times16$ grid of $D$-dimensional vectors. Each cell $z$ is quantized to its
+nearest codebook entry, $q(z)=e_{k}$ with $k=\arg\min_j\lVert z-e_j\rVert$, over a
+codebook of $K{=}512$ vectors, yielding $256$ discrete tokens per frame.
+Gradients pass through the non-differentiable $\arg\min$ via the
+straight-through estimator, and the encoder is held near the codebook by a
+commitment loss $\beta\lVert z-\mathrm{sg}[e_k]\rVert^2$; rather than learning the
+codebook by gradient descent we update it with exponential moving averages of the
+assigned encodings~\cite{oord2017vqvae}, the standard defense against codebook
+collapse. Because a uniform pixel-reconstruction loss would happily drop the
+one- to two-pixel ball, we weight the reconstruction by object presence (a large
+multiplier on bright foreground pixels) so the ball survives quantization
+(Figure~\ref{fig:recon}). The tokenizer is trained first and then \emph{frozen};
+the dynamics model never backpropagates into it.
 
 \textbf{Dynamics.} A GPT-style causal transformer~\cite{vaswani2017attention,
 chen2020igpt} models the flattened, action-interleaved token sequence
-$[f_0,a_0,f_1,a_1,\dots]$, where each $f_t$ is the $256$ tokens of frame $t$ and
-$a_t$ is an action token placed immediately before frame $t{+}1$. We train with
-next-token cross-entropy, supervising only frame-token positions (actions are
-control inputs). At generation we sample frame tokens with temperature and
-top-$k$, decode them with the frozen tokenizer, and slide a context window so
-rollouts can exceed the training context length. A key-value cache makes
-generation roughly an order of magnitude faster.
+$[f_0,a_0,f_1,a_1,\dots]$, where each $f_t$ is the $256$ tokens of frame $t$
+(scanned in raster order) and $a_t$ is a single action token placed immediately
+\emph{before} frame $f_{t+1}$. The vocabulary is the union of $512$ frame codes
+and $4$ action codes; placing the action token just before the frame it
+conditions makes every next-frame prediction explicitly action-conditioned under
+the causal mask. We add learned positional embeddings over the flattened
+sequence and train with next-token cross-entropy, computing the loss \emph{only}
+on frame-token positions---actions are given control inputs, not quantities to
+predict. At generation we autoregressively sample frame tokens with temperature
+$\tau$ and top-$k$ truncation, append the (known) action token, decode the
+completed frame with the frozen tokenizer, and slide a fixed-length context
+window so rollouts can run past the training context length. A key--value cache
+avoids recomputing attention over the prefix at each step and speeds generation
+by roughly an order of magnitude.
 
-\textbf{Why tokens.} Cross-entropy over discrete codes does not average distinct
-futures into a blur the way L1 regression does, and discrete codes cannot
-gradually decay in intensity---the two mechanisms behind the deterministic
-model's rollout failure. Sampling additionally yields stochastic futures.
+\textbf{Why tokens.} Two properties of this design target the exact mechanisms
+behind the deterministic model's collapse. First, a cross-entropy objective over
+discrete codes models the full conditional distribution and is \emph{not}
+minimized by averaging distinct futures, so it avoids the mean-seeking blur that
+an $L_1$/$L_2$ regressor suffers when several continuations are
+plausible~\cite{mathieu2016deep}; sampling from that distribution further yields
+genuinely different futures from the same prime. Second, frames are reconstructed
+from \emph{codebook picks}, not from a continuously regressed intensity, so there
+is no mechanism by which brightness can gradually drift up to white-out or decay
+to a frozen frame---the prediction is always a decode of valid, in-distribution
+codes. Discreteness thus removes both the multi-modality blur and the
+intensity-drift failure at once, and we confirm in \S\ref{sec:det}--5.2 that the
+brightness-conservation and residual-scale machinery the deterministic model
+needs becomes entirely unnecessary here.
 
 \section{Experiments}
 
@@ -329,7 +456,7 @@ is set by the brightness-regularization weight; there is no stable setting.}
 \begin{figure}[t]
 \centering
 \includegraphics[width=0.8\linewidth]{coherence_plot_vertical}
-\caption{Quantitative rollout comparison, averaged over 30 held-out sequences.
+\caption{Quantitative rollout comparison, averaged over 30 evaluation sequences.
 \textbf{Top (max pixel):} under weak brightness-regularization the deterministic
 prediction saturates toward $1.0$ (red, blow-up); under strong regularization it
 stays flat (orange, freeze). \textbf{Bottom (per-step motion):} the blow-up
@@ -356,7 +483,7 @@ Figure~\ref{fig:tok}, rollouts primed on four real frames stay \emph{coherent
 over the full clip}: the ball moves and bounces, the paddle tracks, and bricks
 persist---no blow-up and no freeze. Crucially, we evaluate the token model on the
 \emph{same} axes used to diagnose the deterministic failure
-(Figure~\ref{fig:coh}, blue): averaged over 30 held-out sequences, its max pixel
+(Figure~\ref{fig:coh}, blue): averaged over 30 evaluation sequences, its max pixel
 stays flat at $\approx$0.58 (matching ground truth, vs.\ the blow-up regime's
 drift to $1.0$) and its per-step motion stays within the ground-truth band
 ($\approx$1$\times10^{-3}$, vs.\ the freeze regime's collapse to
@@ -433,7 +560,7 @@ Stochastic futures          & no     & no    & yes \\
 \bottomrule
 \end{tabular}
 \caption{Comparison across our evaluation axes; rollout numbers averaged over 30
-held-out sequences (Figure~\ref{fig:coh}). Ground-truth references are max
+evaluation sequences (Figure~\ref{fig:coh}). Ground-truth references are max
 pixel $\approx$0.58 and motion $\approx$1$\times10^{-3}$. The deterministic
 column reports its two failure regimes (blow-up on brightness, freeze on motion);
 the token model is the only one that stays in the GT band on \emph{both} axes
