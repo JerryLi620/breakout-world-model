@@ -43,8 +43,7 @@ feature-wise linear modulation (FiLM) for action conditioning and a bounded
 residual decoder---and show that, while it learns clean one-step predictions,
 it cannot produce stable autoregressive rollouts. We characterize this failure
 precisely: under closed-loop generation the model's error compounds, and the
-\emph{type} of collapse (brightness blow-up vs.\ motion freeze) is controlled
-entirely by a single regularization weight, with no stable setting in between.
+\emph{type} of collapse (brightness blow-up vs.\ motion freeze) is governed by a single regularization weight alone, with no stable setting in between.
 This is the classic exposure-bias wall of pixel-regression models. Motivated by
 this analysis, we switch to a two-stage discrete-token model in the style of
 recent transformer world models: a VQ-VAE tokenizer encodes each
@@ -55,7 +54,7 @@ token model produces coherent rollouts over the full clip with no blow-up or
 freeze, and---because generation is stochastic---different samples from the same
 prime yield different plausible futures. We further diagnose a ball-respawn
 limitation as a \emph{data-coverage} problem rather than a modeling failure and
-fix it at the data-collection level. Our results align with our hypothesis:
+fix it at the data-collection level. These results confirm our hypothesis:
 L1 pixel regression hits a fundamental rollout wall, while discrete tokenization
 plus autoregressive sampling breaks it.
 \end{abstract}
@@ -78,8 +77,8 @@ actions, and roll out a clip that ``looks like someone is playing the game.''
 The central difficulty is not one-step prediction but \emph{autoregressive
 rollout}: when the model consumes its own predictions, small errors compound.
 
-We make two contributions. First, we build a strong deterministic baseline---a
-FiLM-conditioned U-Net with a bounded residual decoder---and show through
+We make two contributions. First, we build a strong deterministic baseline (a
+FiLM-conditioned U-Net with a bounded residual decoder) and show through
 controlled experiments that it learns clean one-step predictions yet cannot roll
 out stably. We characterize the failure as a trade-off between two collapse
 modes governed by a single brightness-regularization weight, with no stable
@@ -87,7 +86,7 @@ operating point, and argue this is the exposure-bias wall inherent to pixel
 regression. Second, motivated by this analysis, we implement a discrete-token
 world model (VQ-VAE tokenizer + causal transformer) and show it produces
 coherent, \emph{stochastic}, action-conditioned rollouts that the deterministic
-model cannot. We also present an honest failure analysis (ball respawn) and a
+model cannot achieve. We also present a failure analysis (ball respawn) and a
 data-level fix. The result is both a working model and a clear story about
 \emph{why} the simpler approach fails.
 
@@ -145,8 +144,8 @@ learns a discrete codebook for images; Image GPT~\cite{chen2020igpt} and
 VideoGPT~\cite{yan2021videogpt} model the resulting tokens autoregressively, and
 VQGAN~\cite{esser2021taming} adds an adversarial decoder for sharp
 high-resolution synthesis. IRIS~\cite{micheli2023iris} brings this recipe to
-model-based RL---a VQ-VAE tokenizer plus a transformer dynamics model over
-tokens and actions---and is the direct template for our token model;
+model-based RL (a VQ-VAE tokenizer plus a transformer dynamics model over
+tokens and actions) and is the direct template for our token model;
 TWM~\cite{robine2023twm} and STORM~\cite{zhang2023storm} are closely related
 transformer world models that also report strong sample efficiency on Atari.
 At the high-fidelity end, DIAMOND~\cite{alonso2024diamond},
@@ -210,8 +209,8 @@ of frames, so even the shorter corpus yields ample supervision. Because the
 collection policy is fixed and seeded, the corpora are exactly reproducible; we
 report all rollout metrics on a fixed set of $30$ evaluation sequences primed
 from this distribution. We note as a limitation that, given the project scope,
-we do not carve out a separately held-out test environment seed---a
-straightforward addition for a fuller study.
+we do not carve out a separately held-out test environment seed, a
+natural extension for a fuller study.
 
 \textbf{Targeted respawn coverage.} Breakout's life-loss mechanic requires the
 agent to press \texttt{FIRE} to launch a new ball after one is lost. With a pure
@@ -305,7 +304,7 @@ $x^\star$ or are bright (the ball and paddle). The total loss is
 \end{align}
 where (i) the weighted $\mathrm{SmoothL1}$ term is the reconstruction loss; (ii)
 $\mathcal{L}_{\Delta}=\mathrm{SmoothL1}(\hat{x}-x_t,\;x^\star-x_t)$ supervises the
-\emph{change} from the previous frame directly, forcing the model to model motion
+\emph{change} from the previous frame directly, forcing the model to predict motion
 rather than copy $x_t$; (iii)
 $\mathcal{L}_{\text{false-mot}}=\lVert(\hat{x}-x_t)\odot(1-m)\rVert_1$ penalizes
 predicted change outside the region $m$ that actually moved, discouraging
@@ -360,14 +359,14 @@ discrete codes models the full conditional distribution and is \emph{not}
 minimized by averaging distinct futures, so it avoids the mean-seeking blur that
 an $L_1$/$L_2$ regressor suffers when several continuations are
 plausible~\cite{mathieu2016deep}; sampling from that distribution further yields
-genuinely different futures from the same prime. Second, frames are reconstructed
+distinct futures from the same prime. Second, frames are reconstructed
 from \emph{codebook picks}, not from a continuously regressed intensity, so there
 is no mechanism by which brightness can gradually drift up to white-out or decay
 to a frozen frame---the prediction is always a decode of valid, in-distribution
 codes. Discreteness thus removes both the multi-modality blur and the
-intensity-drift failure at once, and we confirm in \S\ref{sec:det}--5.2 that the
+intensity-drift failure at once, and we confirm in \S\ref{sec:det}--\ref{sec:tok} that the
 brightness-conservation and residual-scale machinery the deterministic model
-needs becomes entirely unnecessary here.
+needs is unnecessary here.
 
 \section{Experiments}
 
@@ -435,9 +434,9 @@ the failure \emph{mode} is governed by the brightness-regularization weight
 (Figure~\ref{fig:det}). With weak regularization the prediction's maximum pixel
 value climbs from $0.58$ to $1.0$ within $\sim$6 frames and the screen whites out
 (\emph{blow-up}). With strong regularization the per-frame motion collapses from
-$\sim$12 to $\sim$1 and the frame freezes (\emph{freeze}). Crucially, no
-intermediate setting is stable---tuning trades one failure for the other. We also
-observed, earlier in development, copy-last-frame collapse and mode collapse to a
+$\sim$12 to $\sim$1 and the frame freezes (\emph{freeze}). Strikingly, no
+intermediate setting is stable---tuning trades one failure for the other. In earlier experiments we also
+observed copy-last-frame collapse and mode collapse to a
 mean ``brick-wall'' frame, all consistent with the same underlying cause: L1
 regression cannot represent multi-modal futures and has no mechanism to halt
 intensity drift in closed loop.
@@ -471,17 +470,18 @@ $\sim$6 steps. The token model is the only one that stays on GT on both axes.}
 
 A quantitative view of the same phenomenon is in Figure~\ref{fig:coh}. Both
 deterministic regimes diverge from the ground-truth bands within $\sim$6 rollout
-steps, on either the brightness or the motion axis. Crucially the deviations are
+steps, on either the brightness or the motion axis. The deviations are
 \emph{monotonic}---blow-up keeps rising and freeze stays dead---demonstrating that
 the failure compounds rather than self-corrects.
 
 \subsection{The token model produces coherent rollouts}
+\label{sec:tok}
 The VQ-VAE reaches a reconstruction loss of $0.0034$ at $128\times128$ with the
 ball and paddle clearly reconstructed (Figure~\ref{fig:recon}). The transformer
 trains from a cross-entropy of $0.30$ down to $0.0084$. As shown in
 Figure~\ref{fig:tok}, rollouts primed on four real frames stay \emph{coherent
 over the full clip}: the ball moves and bounces, the paddle tracks, and bricks
-persist---no blow-up and no freeze. Crucially, we evaluate the token model on the
+persist---no blow-up and no freeze. We evaluate the token model on the
 \emph{same} axes used to diagnose the deterministic failure
 (Figure~\ref{fig:coh}, blue): averaged over 30 evaluation sequences, its max pixel
 stays flat at $\approx$0.58 (matching ground truth, vs.\ the blow-up regime's
@@ -497,15 +497,15 @@ $4.9$; the top two codes cover $65\%$ of all tokens and the top five cover $95\%
 (Figure~\ref{fig:codebook}). This is \emph{expected} for low-entropy Breakout
 frames rather than a sign of harmful codebook collapse: most $8\!\times\!8$
 patches are pure background or uniform brick texture, so few distinct codes are
-\emph{needed}. Two pieces of evidence rule out a degenerate ``lookup-table''
+\emph{needed}. Three lines of evidence rule out a degenerate ``lookup-table''
 explanation. First, reconstruction is faithful---the one- to two-pixel ball,
 paddle, and bricks all survive quantization (Figure~\ref{fig:recon})---which a
 handful of indistinct codes could not achieve. Second, the representation is not
 $5$ codes but a $16\!\times\!16$ \emph{spatial grid} of $256$ cells each drawn
 from this small alphabet, so ball position is encoded by \emph{where} the
 foreground code appears, not by code identity alone. Third, the active codes are
-genuinely distinct: their embedding vectors have a mean pairwise distance of
-$4.2$ (minimum $1.8$), so they are well-separated rather than collapsed onto a
+well-separated: their embedding vectors have a mean pairwise distance of
+$4.2$ (minimum $1.8$), rather than collapsed onto a
 single point. The small alphabet thus reflects the data's low visual entropy, not
 a degenerate encoder.
 
@@ -527,7 +527,7 @@ information the dynamics model needs.}
 usage fraction per code (sorted, log scale)---only $7$ of $512$ codes are active.
 \textbf{Right:} cumulative coverage; the top two codes account for $65\%$ and the
 top five for $95\%$ of all tokens. The low perplexity ($4.9$) reflects the
-genuinely low visual entropy of Breakout frames, not codebook collapse:
+inherently low visual entropy of Breakout frames, not codebook collapse:
 reconstruction stays faithful (Figure~\ref{fig:recon}) and the $16\!\times\!16$
 spatial grid encodes object position by location, not code identity.}
 \label{fig:codebook}
@@ -575,7 +575,7 @@ identical priming frames with different random seeds; at matched timesteps the
 ball follows different trajectories, indicating the model learned a
 \emph{distribution} over futures rather than a single continuation. This is the
 action-conditioned stochastic simulation we set out to build, and a capability
-the deterministic model fundamentally lacks (Table~\ref{tab:cmp}).
+the deterministic model cannot provide (Table~\ref{tab:cmp}).
 
 \begin{figure}[t]
 \centering
@@ -594,7 +594,7 @@ spatial detail. \emph{Replacing FiLM with concatenation} drives action
 sensitivity to exactly $0.000$---the model ignores the action---whereas FiLM
 yields $\sim$0.20. For the token model, the brightness-conservation term and
 residual-scale tuning that were critical for the deterministic model are
-\emph{unnecessary}: discreteness removes the intensity-drift failure entirely.
+\emph{unnecessary}: discreteness removes the intensity-drift failure outright.
 
 \section{Conclusion}
 We presented a controlled study of action-conditioned world modeling on Atari
@@ -602,16 +602,14 @@ Breakout. A deterministic FiLM U-Net learns clean one-step predictions but canno
 roll out stably: its failure is a regularization-controlled trade-off between
 brightness blow-up and motion freeze, with no stable operating point---the
 exposure-bias wall of pixel regression. A two-stage discrete-token model
-(VQ-VAE + causal transformer) breaks this wall, producing coherent rollouts and,
-through sampling, genuinely stochastic action-conditioned futures. We additionally
+(VQ-VAE + causal transformer) breaks this wall, producing coherent, stochastic, action-conditioned rollouts. We also
 showed that a salient failure (ball respawn) is a data-coverage issue and fixed it
 at the source. Future work includes quantifying the coherence horizon against
 ground truth with per-frame error curves, temperature/top-$k$ ablations, color
 (RGB) frames for visual realism, and extending to additional games. More broadly,
-our results reinforce a lesson from recent world-model literature: the
-representation and objective---discrete tokens with classification and
-sampling---matter more for stable, diverse rollouts than tuning a pixel-regression
-loss.
+our results reinforce a lesson from the recent world-model literature: for stable,
+diverse rollouts, the representation and objective (discrete tokens with
+classification and sampling) matter more than tuning a pixel-regression loss.
 
 {\small
 \bibliographystyle{ieee}
