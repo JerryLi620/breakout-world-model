@@ -29,3 +29,6 @@ _trash_cleanup/
 missfont.log
 *.zip
 .claude/
+
+# local paper sources, not tracked in this repo
+report/
